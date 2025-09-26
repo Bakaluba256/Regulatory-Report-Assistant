@@ -1,0 +1,98 @@
+/* frontend/src/App.css */
+
+.App {
+  text-align: center;
+  padding: 40px;
+  background-color: #03045E; /* Site Theme Color (Dark Blue) */
+  min-height: 100vh;
+  color: white;
+  font-family: sans-serif;
+}
+
+h1 {
+  color: #00B4D8;
+  margin-bottom: 30px;
+}
+
+.form-container {
+  max-width: 800px;
+  margin: 0 auto 40px;
+  padding: 30px;
+  background-color: #0077B6; /* A slightly different shade for the block */
+  border-radius: 10px;
+}
+
+textarea {
+  width: 95%;
+  height: 150px;
+  padding: 15px;
+  margin-bottom: 20px;
+  border: 1px solid #00B4D8;
+  background-color: #00B4D8; /* Form Color (Light Blue) */
+  border-radius: 5px;
+  color: #03045E; /* Dark text on light form */
+  font-size: 16px;
+}
+
+.process-button {
+  background-color: #0077B6; /* Button Color (Medium Blue) */
+  color: white;
+  padding: 12px 25px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: bold;
+  transition: background-color 0.3s;
+}
+
+.process-button:hover {
+  background-color: #005691;
+}
+
+.results-table {
+  max-width: 800px;
+  margin: 20px auto;
+  border-collapse: collapse;
+  width: 100%;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.results-table th, .results-table td {
+  border: 1px solid #03045E;
+  padding: 12px;
+  text-align: left;
+}
+
+.results-table th {
+  background-color: #00B4D8;
+  color: #03045E;
+  font-weight: bold;
+}
+
+.results-table td {
+  background-color: #48b7e2;
+  color: #03045E;
+  font-weight: 500;
+}
+
+/* --- Popup/Toast styling --- */
+.popup {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background-color: #00B4D8;
+  color: #03045E;
+  padding: 15px 25px;
+  border-radius: 5px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+  animation: fadeInOut 4s ease-in-out forwards;
+}
+
+@keyframes fadeInOut {
+  0% { opacity: 0; transform: translateY(-20px); }
+  10% { opacity: 1; transform: translateY(0); }
+  90% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-20px); }
+}

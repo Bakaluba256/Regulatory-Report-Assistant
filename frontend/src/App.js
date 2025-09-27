@@ -6,7 +6,7 @@ const API_PROCESS_URL = `${API_BASE_URL}/process-report`;
 const API_REPORTS_URL = `${API_BASE_URL}/reports`;
 const API_TRANSLATE_URL = `${API_BASE_URL}/translate`;
 
-// --- Popup Component (remains the same) ---
+// --- Popup Component
 const Popup = ({ message, type, onClose }) => {
   if (!message) return null;
 
@@ -35,7 +35,7 @@ function App() {
     setTimeout(() => setPopupMessage(null), 3000); 
   };
   
-  // --- Bonus Feature: Fetch History ---
+  // ---Fetch History / Report---
   const fetchHistory = async () => {
     try {
         const response = await fetch(API_REPORTS_URL);
@@ -95,7 +95,7 @@ function App() {
     }
   };
 
-  // --- Bonus Feature: Translate Outcome ---
+  // --- Translate Outcome ---
   const handleTranslate = async (lang) => {
     if (!processedData || !processedData.outcome) {
         showPopup('Process a report first to translate the outcome.', 'error');

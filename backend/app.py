@@ -1,8 +1,8 @@
 import json
 import sqlite3
-import spacy
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+import os
 import re
 
 # --- DB Setup (Bonus 4a: SQLite) ---
@@ -10,7 +10,6 @@ DATABASE = 'reports.db'
 
 def init_db():
     """Initializes the SQLite database table for reports."""
-    # Ensure the database structure is created
     with sqlite3.connect(DATABASE) as conn:
         cursor = conn.cursor()
         cursor.execute('''
@@ -46,134 +45,103 @@ def save_report(raw_report, data):
 init_db()
 
 
-# --- Flask & NLP Initialization ---
+# --- Flask & Initialization ---
 app = Flask(__name__)
-CORS(app) 
 
-try:
-    # Load the pre-trained spaCy model
-    nlp = spacy.load("en_core_web_sm")
-except OSError:
-    print("Error loading spaCy model. Ensure you ran 'python -m spacy download en_core_web_sm'")
-    exit()
+# Configure CORS dynamically for deployment (Render, Vercel, etc.)
+# FALLBACK: Use local URL for development (http://localhost:3000)
+ALLOWED_ORIGIN = os.environ.get('REACT_FRONTEND_URL', 'http://localhost:3000')
 
-# --- Core NLP Logic (Robust Extraction) ---
+# Handle multiple origins if environment variable is comma-separated
+if ',' in ALLOWED_ORIGIN:
+    origins_list = ALLOWED_ORIGIN.split(',')
+else:
+    # Always allow the deployed URL and localhost for testing
+    origins_list = [ALLOWED_ORIGIN, 'http://localhost:3000'] 
+
+# Initialize CORS with the dynamic list of allowed origins
+CORS(app, resources={r"/*": {"origins": origins_list}})
+
+
+# --- Core Extraction Logic (PURE RULE-BASED) ---
+
+# Expanded lists for more accurate rule-based matching
+DRUG_PATTERNS = r'(?:taking|took|given|administered|started|gave)\s+([A-Z]\w+)\s*(?:[A-Z]\w*)*|Drug\s+[A-Z]'
+SYMPTOMS_LIST = [
+    "nausea", "headache", "vomiting", "fever", "rash", "dizziness", "vertigo", 
+    "fatigue", "diarrhea", "pain", "swelling", "bleeding", "seizure", "insomnia", 
+    "difficulty breathing", "stomach ache", "cramps"
+]
+SEVERITY_KEYWORDS = {
+    "severe": ["severe", "critical", "life-threatening", "serious"],
+    "moderate": ["moderate", "significant"],
+    "mild": ["mild", "slight", "minimal", "low"]
+}
+OUTCOME_KEYWORDS = {
+    "recovered": ["recovered", "resolved", "improved", "better"],
+    "ongoing": ["ongoing", "persisting", "continuing"],
+    "fatal": ["fatal", "died", "death"]
+}
+
+
 def extract_report_data(report_text):
     """
-    Extracts structured data using robust spaCy Dependency Parsing and rule-based logic.
+    Extracts structured data using only REGEX and simple keyword matching.
     """
-    doc = nlp(report_text)
+    report_lower = report_text.lower()
     
     drug = "Unknown Drug"
     adverse_events = []
     severity = "unknown"
     outcome = "unknown"
+    
+    # 1. Drug Extraction (REGEX)
+    
+    # Check for 'Drug X' pattern
+    drug_match_x = re.search(r'Drug\s+([A-Z])', report_text)
+    if drug_match_x:
+        drug = f"Drug {drug_match_x.group(1)}"
+    else:
+        # Look for a capitalized word following key drug verbs (e.g., 'taking Panadol', 'given Aspirin')
+        drug_match_cap = re.search(r'(?:taking|took|given|administered|started|gave)\s+([A-Z]\w+)\s*(?:[A-Z]\w*)*', report_text)
+        if drug_match_cap:
+            drug = drug_match_cap.group(1)
+        
+        # Fallback: Look for capitalized word preceded by 'was given' (crude passive voice check)
+        elif 'was given' in report_lower:
+            # Look for an uppercase word immediately following 'was given'
+            passive_match = re.search(r'was\s+given\s+([A-Z]\w+)', report_text)
+            if passive_match:
+                drug = passive_match.group(1)
 
-    # Keywords and constant lists
-    SYMPTOM_VERBS = ["experienced", "had", "suffered", "felt", "develop", "get"]
-    DRUG_VERBS = ["taking", "took", "given", "administered", "started", "gave"]
-    SEVERITY_ADJS = ["severe", "critical", "life-threatening", "moderate", "serious", "mild", "slight", "painful", "bad"]
-    OUTCOME_LEMMAS = ["recover", "resolve", "improve", "ongoing", "persist", "continue", "die", "better"]
-    # Explicitly ignore non-symptoms, verbs, or outcome words
-    IGNORE_AE = ["patient", "day", "week", "morning", "time", "moving", "improving", "better", "recovered", "improved", "medicine", "pill", "n/a", "then", "he", "she", "one"]
-    
-    
-    # 1. Drug Extraction (Robust to Active and Passive Voice)
-    drug_found = False
-    for i, token in enumerate(doc):
-        # Primary Check: PROPN following a DRUG_VERB lemma (Covers "taking Panadol" and "given Aspirin")
-        if token.lemma_ in DRUG_VERBS:
-            # Look at immediate children for PROPN (e.g., 'Panadol' is dobj of 'taking')
-            drug_entity = next((child for child in token.children if child.pos_ == "PROPN" and child.dep_ in ["dobj", "attr", "pobj"]), None)
-            if drug_entity:
-                drug = ' '.join([t.text for t in drug_entity.subtree if t.pos_ in ["NOUN", "PROPN"] and t.text.lower() not in ["medicine", "pill"]])
-                drug_found = True
-                break
-                
-            # Secondary Check: Look at the next token (Covers "was given aspirin medicine")
-            if i < len(doc) - 1 and doc[i+1].pos_ == "PROPN" and doc[i+1].text.lower() not in ["patient", "he", "she"]:
-                drug = doc[i+1].text
-                drug_found = True
-                break
-            
-            # Tertiary Check: Handle passive voice where drug is subject of main clause verb, or object of a past participle.
-            if token.lemma_ == "given":
-                 if i > 0 and doc[i-1].pos_ == "PROPN" and doc[i-1].text.istitle() and doc[i-1].text.lower() not in ["patient"]:
-                     drug = doc[i-1].text
-                     drug_found = True
-                     break
-                     
-        # Specific check for 'Drug X' type placeholders
-        if token.text.lower() == 'drug' and i < len(doc) - 1 and doc[i+1].text.upper() == 'X':
-            drug = "Drug X"
-            drug_found = True
-            break
-            
-    if drug_found and drug.lower() == 'medicine':
-        drug = "Unknown Drug"
-
-    
-    # 2. Adverse Events & Severity Extraction (IMPROVED: Broader dependency search for symptoms)
-    for sent in doc.sents:
-        for token in sent:
-            # Check for symptom verbs OR symptoms linked by 'was'/'is'
-            if token.lemma_ in SYMPTOM_VERBS or (token.lemma_ == 'be' and token.dep_ == 'ROOT'):
-                
-                # Broadened targets: dobj, attr, conj, nsubj, or pobj/acomp if it's a NOUN/PROPN
-                symptoms = [child for child in token.children if child.pos_ in ["NOUN", "PROPN"] and child.dep_ in ["dobj", "attr", "conj", "nsubj", "pobj", "acomp"]]
-                
-                # Check for gerund structure (e.g., 'after experiencing headache')
-                if not symptoms and token.dep_ in ['pcomp', 'acl']:
-                    symptoms.extend([child for child in token.children if child.pos_ in ["NOUN", "PROPN"] and child.dep_ in ["dobj", "attr", "conj"]])
-                
-                
-                for symptom in symptoms:
-                    symptom_text = symptom.text.lower().strip()
-                    
-                    # Filter: Only include if it is a NOUN/PROPN and not on the IGNORE_AE list
-                    if symptom.pos_ in ["NOUN", "PROPN"] and symptom_text not in [w.lower() for w in IGNORE_AE]:
-                        adverse_events.append(symptom_text)
-                    
-                        # Find Severity (Adjectives modifying the symptom)
-                        for child in symptom.children:
-                            if child.pos_ == "ADJ" and child.lemma_ in SEVERITY_ADJS:
-                                severity = child.text.lower()
-                                break
-    
-    # Final cleanup and filtering
-    adverse_events = sorted(list(set(ae for ae in adverse_events)))
-    adverse_events = [ae for ae in adverse_events if ae not in [w.lower() for w in OUTCOME_LEMMAS]]
+    # 2. Adverse Events (Keyword Matching)
+    adverse_events = sorted(list(set(
+        symptom for symptom in SYMPTOMS_LIST 
+        if symptom in report_lower
+    )))
     adverse_events = adverse_events if adverse_events else ["N/A"]
     
-    
-    # 3. Outcome Extraction
-    for token in doc:
-        if token.lemma_ in OUTCOME_LEMMAS:
-            if token.lemma_ in ['better', 'improve']:
-                 outcome = 'improved'
-            elif token.lemma_ == 'recover':
-                outcome = 'recovered'
-            elif token.lemma_ == 'die':
-                outcome = 'fatal'
-            elif token.lemma_ in ['ongoing', 'continue', 'persist']:
-                outcome = 'ongoing'
+    # 3. Severity Extraction (Keyword Matching)
+    for level, keywords in SEVERITY_KEYWORDS.items():
+        if any(kw in report_lower for kw in keywords):
+            severity = level
+            break
+
+    # 4. Outcome Extraction (Keyword Matching)
+    for level, keywords in OUTCOME_KEYWORDS.items():
+        if any(kw in report_lower for kw in keywords):
+            outcome = level
             break
             
-    # Final severity check: if severity is unknown but an adjective is present and AE is found
-    if severity == "unknown" and adverse_events != ["N/A"]:
-        for adj in SEVERITY_ADJS:
-            if adj in report_text.lower():
-                severity = adj
-                break
-            
+    # Final formatting
     return {
-        "drug": drug.title() if drug != "Unknown Drug" else drug,
+        "drug": drug.title() if drug != "Unknown Drug" and not drug.isupper() else drug,
         "adverse_events": adverse_events,
         "severity": severity.title(),
         "outcome": outcome.title()
     }
     
-# --- API Endpoint: POST /process-report (Part 1.1) ---
+# --- API Endpoint: POST /process-report ---
 @app.route('/process-report', methods=['POST'])
 def process_report():
     if not request.json or 'report' not in request.json:
@@ -183,14 +151,13 @@ def process_report():
     
     try:
         processed_data = extract_report_data(report_text)
-        # Save to DB (Bonus 4a)
         save_report(report_text, processed_data)
         return jsonify(processed_data), 200
     except Exception as e:
         app.logger.error(f"Processing error: {e}")
         return jsonify({"error": "Internal processing error"}), 500
 
-# --- BONUS API Endpoint: GET /reports (Bonus 4b) ---
+# --- BONUS API Endpoint: GET /reports (History) ---
 @app.route('/reports', methods=['GET'])
 def get_reports():
     """Fetches all past reports from the SQLite database."""
@@ -214,18 +181,21 @@ def get_reports():
 
     return jsonify(reports_list), 200
 
-# --- BONUS API Endpoint: POST /translate (Bonus 4c) ---
+# --- BONUS API Endpoint: POST /translate ---
 TRANSLATION_DICT = {
     "Recovered": {"fr": "Récupéré", "sw": "Amepona"},
     "Improved": {"fr": "Amélioré", "sw": "Kupata nafuu"},
     "Ongoing": {"fr": "En cours", "sw": "Inaendelea"},
     "Fatal": {"fr": "Fatal", "sw": "Mbaya"},
     "Unknown": {"fr": "Inconnu", "sw": "Haijulikani"},
+    "Severe": {"fr": "Grave", "sw": "Kali"},
+    "Mild": {"fr": "Léger", "sw": "Kidogo"},
+    "Moderate": {"fr": "Modéré", "sw": "Wastani"},
 }
 
 @app.route('/translate', methods=['POST'])
 def translate_outcome():
-    """Translates the outcome into French or Swahili."""
+    """Translates the outcome (or severity) into French or Swahili."""
     if not request.json or 'outcome' not in request.json or 'language' not in request.json:
         return jsonify({"error": "Missing 'outcome' or 'language' field in request"}), 400
 
@@ -242,4 +212,5 @@ def translate_outcome():
 
 # Run the app
 if __name__ == '__main__':
+    # Use host='0.0.0.0' for deployment/docker compatibility
     app.run(debug=True, host='0.0.0.0', port=5000)

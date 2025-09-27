@@ -1,5 +1,3 @@
-// frontend/src/App.js (FINAL VERSION with History and Translation Bonus)
-
 import React, { useState, useEffect } from 'react';
 import './App.css';
 
@@ -188,8 +186,12 @@ function App() {
                         <td>{Array.isArray(report.adverse_events) ? report.adverse_events.join(', ') : report.adverse_events}</td>
                         <td>{report.severity}</td>
                         <td>{report.outcome}</td>
-                        <td>{new Date(report.timestamp).toLocaleTimeString()}</td>
-                    </tr>
+                        <td>{new Date(report.timestamp + 'Z').toLocaleString('en-GB', {
+    timeZone: 'Africa/Nairobi',
+    dateStyle: 'short',
+    timeStyle: 'short'
+})}</td>
+                    </tr> 
                 ))}
             </tbody>
         </table>
@@ -218,7 +220,7 @@ function App() {
         </button>
         <button 
             className="process-button" 
-            style={{backgroundColor: activeTab === 'history' ? '#0077B6' : '#005691'}}
+            style={{backgroundColor: activeTab === 'history' ? '#00b6349f' : '#005691'}}
             onClick={() => setActiveTab('history')}
         >
             View History ({reportsHistory.length})
